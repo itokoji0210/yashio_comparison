@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>動画スライダー比較</title>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: #000;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+    .slider-container {
+      position: relative;
+      width: 100vw;
+      height: 80vh;
+      overflow: hidden;
+      background: #000;
+    }
+    .iframe-wrapper {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none; /* iframe上の操作を無効化 */
+    }
+    .iframe-wrapper.left {
+      z-index: 2;
+      clip-path: inset(0 50% 0 0);
+    }
+    .iframe-wrapper.right {
+      z-index: 1;
+    }
+    .slider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 10px;
+      background: rgba(255, 255, 255, 0.8);
+      cursor: ew-resize;
+      z-index: 3;
+      transform: translateX(-50%);
+      touch-action: none;
+      user-select: none;
+    }
+    /* タップ判定をファジーにするため、透明なヒットエリアを追加 */
+    .slider::before {
+      content: '';
+      position: absolute;
+      top: -10px;
+      bottom: -10px;
+      left: -10px;
+      right: -10px;
+    }
+    /* 下部の操作パネル */
+    #controls {
+      width: 90%;
+      max-width: 600px;
+      margin-top: 20px;
+      text-align: center;
+      color: white;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+    #play-pause-btn, #reload-btn {
+      font-size: 1.2em;
+      padding: 8px 16px;
+      cursor: pointer;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 10px;
+      background: #333;
+      border-radius: 5px;
+      cursor: pointer;
+      position: relative;
+    }
+    .progress {
+      height: 100%;
+      width: 0%;
+      background: #4CAF50;
+      border-radius: 5px;
+    }
+    .time-display {
+      font-size: 0.9em;
+      width: 100%;
+      text-align: center;
+    }
+    /* モバイル向け調整 */
+    @media (max-width: 600px) {
+      .slider-container {
+        height: 60vh;
+      }
+      #play-pause-btn, #reload-btn {
+        font-size: 1.5em;
+        padding: 10px 20px;
+      }
+      .progress-bar {
+        height: 8px;
+      }
+      .time-display {
+        font-size: 1em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slider-container">
+    <div class="iframe-wrapper left">
+      <div id="player-left"></div>
+    </div>
+    <div class="iframe-wrapper right">
+      <div id="player-right"></div>
+    </div>
+    <div class="slider" id="slider"></div>
+  </div>
+
+  <div id="controls">
+    <button id="play-pause-btn">▶ / ⏸</button>
+    <button id="reload-btn">再読み込み</button>
+    <div class="progress-bar" id="progress-bar">
+      <div class="progress" id="progress"></div>
+    </div>
+    <div class="time-display" id="time-display">00:00 / 00:00</div>
+  </div>
+
+  <script>
+    let playerLeft, playerRight;
+    let leftReady = false, rightReady = false;
+    const leftVideoId = 'eurAN3Wf58c';
+    const rightVideoId = 'i97hyFN8erg';
+    let syncInterval = null;
+
+    function onYouTubeIframeAPIReady() {
+      playerLeft = new YT.Player('player-left', {
+        height: '100%',
+        width: '100%',
+        videoId: leftVideoId,
+        playerVars: {
+          'playsinline': 1,
+          'autoplay': 0,
+          'mute': 1,
+          'modestbranding': 1,
+          'controls': 0,
+          'disablekb': 1,
+          'rel': 0
+        },
+        events: {
+          'onReady': () => { leftReady = true; syncPlay(); },
+          'onStateChange': onPlayerStateChange
+        }
+      });
+      playerRight = new YT.Player('player-right', {
+        height: '100%',
+        width: '100%',
+        videoId: rightVideoId,
+        playerVars: {
+          'playsinline': 1,
+          'autoplay': 0,
+          'mute': 1,
+          'modestbranding': 1,
+          'controls': 0,
+          'disablekb': 1,
+          'rel': 0
+        },
+        events: {
+          'onReady': () => { rightReady = true; syncPlay(); },
+          'onStateChange': onPlayerStateChange
+        }
+      });
+    }
+
+    // 両プレイヤーが準備できたら再生開始
+    function syncPlay() {
+      if (leftReady && rightReady) {
+        playerLeft.playVideo();
+        playerRight.playVideo();
+      }
+    }
+
+    // 動画状態の変化時に同期チェックを開始/停止
+    function onPlayerStateChange(event) {
+      if (event.data === YT.PlayerState.PLAYING) {
+        // 再生中は200msごとに同期チェックを実施
+        if (!syncInterval) {
+          syncInterval = setInterval(checkSync, 200);
+        }
+      } else {
+        // 再生が停止・バッファリング中などの場合はチェックを停止
+        if (syncInterval) {
+          clearInterval(syncInterval);
+          syncInterval = null;
+        }
+      }
+    }
+
+    // 両動画の再生位置が0.3秒以上ズレた場合、右側を左側に合わせる
+    function checkSync() {
+      if (playerLeft && playerRight && playerLeft.getCurrentTime && playerRight.getCurrentTime) {
+        const timeLeft = playerLeft.getCurrentTime();
+        const timeRight = playerRight.getCurrentTime();
+        if (Math.abs(timeRight - timeLeft) > 0.3) {
+          playerRight.seekTo(timeLeft, true);
+        }
+      }
+    }
+
+    // 再生・停止ボタンの設定
+    document.getElementById('play-pause-btn').addEventListener('click', () => {
+      if (playerLeft.getPlayerState() === YT.PlayerState.PLAYING) {
+        playerLeft.pauseVideo();
+        playerRight.pauseVideo();
+      } else {
+        playerLeft.playVideo();
+        playerRight.playVideo();
+      }
+    });
+
+    // 再読み込みボタンで動画を最初から再生
+    document.getElementById('reload-btn').addEventListener('click', () => {
+      if (playerLeft && playerRight) {
+        playerLeft.seekTo(0, true);
+        playerRight.seekTo(0, true);
+        playerLeft.playVideo();
+        playerRight.playVideo();
+      }
+    });
+
+    // スライダーバーによる左右の比較表示
+    const slider = document.getElementById('slider');
+    const leftWrapper = document.querySelector('.iframe-wrapper.left');
+    let isDragging = false;
+
+    slider.addEventListener('pointerdown', (e) => {
+      isDragging = true;
+      document.body.style.cursor = 'ew-resize';
+      e.preventDefault();
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (isDragging) {
+        let position = (e.clientX / window.innerWidth) * 100;
+        position = Math.max(0, Math.min(100, position));
+        slider.style.left = `${position}%`;
+        leftWrapper.style.clipPath = `inset(0 ${100 - position}% 0 0)`;
+      }
+    });
+    document.addEventListener('pointerup', () => {
+      isDragging = false;
+      document.body.style.cursor = 'default';
+    });
+
+    // 再生時間更新とシークバーの実装
+    function updateProgress() {
+      if (playerLeft && playerLeft.getDuration) {
+        const currentTime = playerLeft.getCurrentTime();
+        const duration = playerLeft.getDuration();
+        const percentage = (currentTime / duration) * 100;
+        document.getElementById('progress').style.width = percentage + '%';
+        document.getElementById('time-display').innerText = formatTime(currentTime) + ' / ' + formatTime(duration);
+      }
+    }
+    // mm:ss形式に変換する関数
+    function formatTime(time) {
+      const minutes = Math.floor(time / 60);
+      const seconds = Math.floor(time % 60);
+      return (minutes < 10 ? "0" + minutes : minutes) + ":" + (seconds < 10 ? "0" + seconds : seconds);
+    }
+    setInterval(updateProgress, 500);
+
+    // 進捗バークリックで任意の時間へシーク（PC・スマホ双方に対応）
+    document.getElementById('progress-bar').addEventListener('pointerdown', function(e) {
+      const rect = this.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const percentage = clickX / rect.width;
+      const duration = playerLeft.getDuration();
+      const newTime = duration * percentage;
+      playerLeft.seekTo(newTime, true);
+      playerRight.seekTo(newTime, true);
+    });
+  </script>
+</body>
+</html>
